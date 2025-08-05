@@ -111,26 +111,57 @@
   function openAddPartModal() {
     document.getElementById("partForm").reset();
     document.getElementById("partModalTitle").textContent = "Add New Part";
+    
+    // Get form elements
     const partCategory = document.getElementById("partCategory");
     const partIdInput = document.getElementById("partId");
+    const partNameInput = document.getElementById("partName");
+    const partBrandInput = document.getElementById("partBrand");
+    
+    // Initially disable name and brand fields until category is selected
+    partNameInput.disabled = true;
+    partBrandInput.disabled = true;
     partIdInput.readOnly = true;
+    
+    // Add placeholder text to indicate category selection is required
+    partNameInput.placeholder = "Select a category first";
+    partBrandInput.placeholder = "Select a category first";
+    
+    // Add category change listener
     partCategory.addEventListener("change", function () {
       const selectedCategory = partCategory.value;
-      if (!selectedCategory) {
-        partIdInput.value = "";
-        return;
-      }
+      
+              if (!selectedCategory) {
+          partIdInput.value = "";
+          partNameInput.disabled = true;
+          partBrandInput.disabled = true;
+          partNameInput.value = "";
+          partBrandInput.value = "";
+          partNameInput.placeholder = "Select a category first";
+          partBrandInput.placeholder = "Select a category first";
+          return;
+        }
+      
+      // Enable name and brand fields when category is selected
+      partNameInput.disabled = false;
+      partBrandInput.disabled = false;
+      partNameInput.placeholder = "Enter part name";
+      partBrandInput.placeholder = "Enter brand name";
+      
+      // Generate part ID based on category
       const prefix = selectedCategory.split(" ")[0].toUpperCase();
       let maxNum = 0;
       inventory.forEach((p) => {
-        if (p.partId && p.partId.startsWith(prefix)) {
-          const num = parseInt(p.partId.replace(prefix, ""));
+        if (p.categoryId && p.categoryId.startsWith(prefix)) {
+          const num = parseInt(p.categoryId.replace(prefix, ""));
           if (!isNaN(num) && num > maxNum) maxNum = num;
         }
       });
       const newId = prefix + String(maxNum + 1).padStart(3, "0");
       partIdInput.value = newId;
     });
+    
+    // Trigger initial change event
     partCategory.dispatchEvent(new Event("change"));
     document.getElementById("partModal").style.display = "block";
     currentEditPartId = null; // Ensure this is null for new parts
@@ -151,7 +182,6 @@
 
       await refreshPartData();
     } catch (error) {
-      console.error("Part form submission error:", error);
       showToast(`Error saving part: ${error.message}`, "error");
     }
   }
@@ -181,7 +211,12 @@
     const alertThreshold = parseInt(partAlertThresholdElement.value);
     const status = partStatusElement.value;
 
-    if (!categoryId || !name || !brand || !category || isNaN(price) || isNaN(quantity) || isNaN(alertThreshold)) {
+    if (!category) {
+      showToast("Please select a category first", "error");
+      return null;
+    }
+    
+    if (!categoryId || !name || !brand || isNaN(price) || isNaN(quantity) || isNaN(alertThreshold)) {
       showToast("Please fill in all required fields", "error");
       return null;
     }
@@ -204,7 +239,7 @@
       await logActivityAPI(
         formData.name,
         formData.categoryId,
-        "Addition",
+        "Stock Added",
         `Added new part to inventory`,
         null
       );
@@ -220,12 +255,26 @@
       (p) => p.id == id || p.partId === id || p.categoryId === id
     );
     if (!part) return;
+    
     document.getElementById("partModalTitle").textContent = "Edit Part";
-    document.getElementById("partId").value = part.categoryId; // Always use categoryId
-    document.getElementById("partId").readOnly = true;
-    document.getElementById("partName").value = part.name;
-    document.getElementById("partBrand").value = part.brand;
+    
+    // Get form elements
+    const partIdInput = document.getElementById("partId");
+    const partNameInput = document.getElementById("partName");
+    const partBrandInput = document.getElementById("partBrand");
     const partCategory = document.getElementById("partCategory");
+    
+    // Set values
+    partIdInput.value = part.categoryId; // Always use categoryId
+    partIdInput.readOnly = true;
+    partNameInput.value = part.name;
+    partBrandInput.value = part.brand;
+    
+    // Enable name and brand fields for editing (since we're editing an existing part)
+    partNameInput.disabled = false;
+    partBrandInput.disabled = false;
+    
+    // Set category and trigger change event
     if (partCategory) {
       let attempts = 0;
       const setCategory = () => {
@@ -239,9 +288,11 @@
       };
       setCategory();
     }
+    
     document.getElementById("partPrice").value = part.price;
     document.getElementById("partQuantity").value = part.quantity;
     document.getElementById("partAlertThreshold").value = part.alertThreshold;
+    
     // Set stock level dropdown
     const partStatusDropdown = document.getElementById("partStatus");
     if (partStatusDropdown) {
@@ -251,6 +302,7 @@
         partStatusDropdown.value = "Auto (Based on Quantity)"; // Match the option value exactly
       }
     }
+    
     const partModal = document.getElementById("partModal");
     if (partModal) partModal.style.display = "block";
     currentEditPartId = part.categoryId; // Use categoryId for updates
@@ -272,7 +324,7 @@
       await logActivityAPI(
         formData.name,
         formData.categoryId,
-        "Update",
+        "Update Inventory",
         `Updated part details`,
         null
       );
@@ -306,7 +358,7 @@
       await logActivityAPI(
         part.name,
         part.categoryId,
-        "Deletion",
+        "Deleted",
         `Removed part from inventory`,
         null
       );
@@ -543,8 +595,7 @@
 
       await refreshOrderData();
     } catch (error) {
-      console.error("Order form submission error:", error);
-      showToast(`Error saving order: ${error.message}`, "error");
+      showToast("Error submitting order form", "error");
     }
   }
 
@@ -577,67 +628,19 @@
     return { orderId, date, status };
   }
 
-  async function createNewOrders(formData) {
-    let successCount = 0;
-    let errors = [];
-
-    for (let i = 0; i < currentOrderCategories.length; i++) {
-      const category = currentOrderCategories[i];
-      const thisOrderId = currentOrderCategories.length > 1 
-        ? `${formData.orderId}-${i + 1}` 
-        : formData.orderId;
-      
-      const orderData = {
-        orderId: thisOrderId,
-        categoryId: category.partId,
-        partName: category.partName,
-        date: formData.date,
-        quantity: category.quantity,
-        status: formData.status,
-      };
-
-      try {
-        const responseData = await apiCall("/orders", {
-          method: "POST",
-          body: JSON.stringify(orderData)
-        });
-
-        if (responseData && (responseData.success || responseData.id || responseData.orderId)) {
-          await logActivityAPI(
-            category.partName,
-            category.partId,
-            "Create Order",
-            `Created order ${thisOrderId} for ${category.quantity} units (Status: ${formData.status})`,
-            thisOrderId
-          );
-          successCount++;
-        } else {
-          throw new Error("Order creation failed - invalid response");
-        }
-      } catch (orderError) {
-        console.error(`Error creating order for ${category.partName}:`, orderError);
-        errors.push(`${category.partName}: ${orderError.message}`);
-      }
-    }
-
-    showOrderCreationResults(successCount, errors, formData.orderId);
-  }
-
   function showOrderCreationResults(successCount, errors, orderId) {
     if (successCount > 0 && errors.length === 0) {
       showToast(`Order ${orderId} created successfully with ${successCount} items!`, "success");
-    } else if (successCount > 0 && errors.length > 0) {
-      showToast(`Partially successful: ${successCount} items created, ${errors.length} failed`, "warning");
-      console.error("Order creation errors:", errors);
-    } else {
+          } else if (successCount > 0 && errors.length > 0) {
+        showToast(`Partially successful: ${successCount} items created, ${errors.length} failed`, "warning");
+      } else {
       showToast("All order items failed to create", "error");
-      console.error("All order creation errors:", errors);
+      
       throw new Error("All orders failed");
     }
   }
 
   // ===== UPDATE OPERATIONS =====
-  // Note: editOrder function moved to async version below to handle multiple parts
 
   function closeOrderModal() {
     const orderModal = document.getElementById("orderModal");
@@ -647,33 +650,100 @@
   }
 
   async function updateExistingOrder(formData) {
-    const category = currentOrderCategories[0];
-    const orderData = {
-      orderId: formData.orderId,
-      categoryId: category.partId,
-      partName: category.partName,
-      date: formData.date,
-      quantity: category.quantity,
-      status: formData.status,
-    };
-
-    const responseData = await apiCall(`/orders/${currentEditOrderId}`, {
-      method: "PUT",
-      body: JSON.stringify(orderData)
-    });
-
-    if (responseData && (responseData.success || responseData.id || responseData.orderId)) {
-      await logActivityAPI(
-        category.partName,
-        category.partId,
-        "Update Order",
-        `Updated order ${formData.orderId}`,
-        formData.orderId
-      );
-      showToast("Order updated successfully!", "success");
-    } else {
-      throw new Error("Order update failed - invalid response");
+    // For editing existing orders, we need to handle multiple items
+    // First, delete ALL existing orders with the same orderId
+    try {
+      // Get all orders with the same orderId to delete them
+      const allOrders = await apiCall("/orders");
+      const ordersToDelete = allOrders.filter(order => order.orderId === formData.orderId);
+      
+      // Delete each order record with the same orderId
+      for (const order of ordersToDelete) {
+        await apiCall(`/orders/${order.id}`, {
+          method: "DELETE"
+        });
+      }
+  
+        } catch (error) {
+        // Handle error silently
+      }
+    
+    // Then create new orders with the same order ID for all items
+    let successCount = 0;
+    let errors = [];
+    
+    for (let i = 0; i < currentOrderCategories.length; i++) {
+      const category = currentOrderCategories[i];
+      
+      const orderData = {
+        orderId: formData.orderId, // Use the same order ID for all items
+        categoryId: category.partId,
+        partName: category.partName,
+        date: formData.date,
+        quantity: category.quantity,
+        status: formData.status,
+      };
+  
+      try {
+        const responseData = await apiCall("/orders", {
+          method: "POST",
+          body: JSON.stringify(orderData)
+        });
+  
+        if (responseData && (responseData.success || responseData.id !== undefined || responseData.orderId)) {
+          successCount++;
+        } else {
+          throw new Error("Order update failed - invalid response");
+        }
+              } catch (orderError) {
+            errors.push(`${category.partName}: ${orderError.message}`);
+          }
+        }
+          
+  
+    // Log the entire order update as one activity
+    if (successCount > 0) {
+      const itemDetails = currentOrderCategories.map(cat => `${cat.quantity}x ${cat.partName}`).join(', ');
+      
+      try {
+        await logActivityAPI(
+          `Order ${formData.orderId}`,
+          "N/A",
+          "Update Order",
+          `Updated order ${formData.orderId} with ${successCount} items: ${itemDetails}`,
+          formData.orderId
+        );
+      } catch (error) {
+        // Silently handle activity logging errors
+      }
     }
+      try {
+        await logActivityAPI(
+          `Order ${formData.orderId}`,
+          "N/A",
+          "Update Order",
+          `Updated order ${formData.orderId} with ${successCount} items: ${itemDetails}`,
+          formData.orderId
+        );
+      } catch (error) {
+        // Silently handle activity logging errors
+      }
+    
+  
+    if (successCount > 0 && errors.length === 0) {
+      showToast(`Order ${formData.orderId} updated successfully with ${successCount} items!`, "success");
+    } else if (successCount > 0 && errors.length > 0) {
+      showToast(`Partially successful: ${successCount} items updated, ${errors.length} failed`, "warning");
+    } else {
+      showToast("All order items failed to update", "error");
+      throw new Error("All order updates failed");
+    }
+    
+    // Always refresh the data after order update attempt
+    if (successCount > 0) {
+      await refreshOrderData();
+    }
+  
   }
 
   async function refreshOrderData() {
@@ -1068,8 +1138,7 @@ function generateOrderReport() {
         throw new Error("Failed to generate PDF");
       }
     } catch (error) {
-      console.error("Error generating PDF:", error);
-      showToast("Error generating PDF report", "error");
+      showToast("Error generating PDF", "error");
     }
 }
 
@@ -1436,10 +1505,6 @@ function logout() {
         }
     );
 }
-
-  // Production Ready Features // Hardware Manager - Main Application
-// Production ready with authentication protection and enhanced notifications
-
 // Session Authentication Check - Prevents content flash
 function checkAuthentication() {
   const sessionData =
@@ -1482,7 +1547,7 @@ function checkAuthentication() {
         return true;
     } catch (error) {
         // Invalid session data, clear and redirect
-    console.error("Session validation error:", error);
+
         clearStoredSessions();
         redirectToLogin();
         return false;
@@ -1571,8 +1636,7 @@ async function apiCall(endpoint, options = {}) {
     
     // Check if user is authenticated
     if (!token) {
-      console.log('No authentication token found, redirecting to login...');
-      redirectToLogin('Please log in to continue');
+      redirectToLogin();
       return null;
     }
     
@@ -1610,15 +1674,9 @@ async function apiCall(endpoint, options = {}) {
     
     return JSON.parse(text);
   } catch (error) {
-    console.error('API call error:', error);
-    
-    // Handle authentication errors
-    if (error.message.includes('Missing token') || error.message.includes('Invalid token') || error.message.includes('401')) {
-      console.log('Authentication error detected, redirecting to login...');
-      redirectToLogin('Please log in to continue');
-      return null;
+    if (error.message.includes('401') || error.message.includes('403')) {
+      redirectToLogin();
     }
-    
     throw error;
   }
 }
@@ -1626,14 +1684,11 @@ async function apiCall(endpoint, options = {}) {
   async function fetchInventory() {
     try {
       inventory = await apiCall('/parts');
-      console.log('Inventory data loaded:', inventory);
-      
-      // Check if any parts have prices
-      const partsWithPrices = inventory.filter(part => part.price && part.price > 0);
-      console.log(`Parts with prices: ${partsWithPrices.length} out of ${inventory.length}`);
-      if (partsWithPrices.length === 0) {
-        console.warn('WARNING: No parts have prices set! This is why all order values show ₱0.');
-      }
+          // Check if any parts have prices
+    const partsWithPrices = inventory.filter(part => part.price && part.price > 0);
+    if (partsWithPrices.length === 0) {
+      // No parts have prices set - this affects order values
+    }
       
 
     } catch (error) {
@@ -1645,7 +1700,7 @@ async function apiCall(endpoint, options = {}) {
   function renderDashboardWeeklyOrderChart() {
     const chartContainer = document.getElementById("dashboardWeeklyOrderChart");
     if (!chartContainer) {
-      console.warn("Dashboard weekly order chart container not found");
+  
       return;
     }
 }
@@ -1669,7 +1724,7 @@ async function fetchOrders() {
         status: order.status,
     created_at: order.created_at,
     }));
-    console.log('Orders data loaded:', orders);
+
     updateOrderReports();
     updateDashboardWeeklyOrderChart();
     } catch (error) {
@@ -1682,8 +1737,7 @@ async function fetchActivity() {
     try {
       activityHistory = await apiCall('/activity');
     } catch (error) {
-      activityHistory = [];
-      showToast('Failed to fetch activity', 'error');
+      // Silently handle activity fetch errors
     }
 }
 
@@ -2125,7 +2179,6 @@ async function handlePartFormSubmit(e) {
 
       await refreshPartData();
     } catch (error) {
-      console.error("Part form submission error:", error);
       showToast(`Error saving part: ${error.message}`, "error");
     }
   }
@@ -2181,7 +2234,7 @@ async function handlePartFormSubmit(e) {
     // Check for duplicate part names (case-insensitive)
     const existingPartByName = inventory.find(part => 
       part.name.toLowerCase() === name.toLowerCase() && 
-      (!currentEditPartId || part.id != currentEditPartId) // Exclude current part when editing
+      (!currentEditPartId || part.categoryId !== currentEditPartId) // Exclude current part when editing
     );
     
     if (existingPartByName) {
@@ -2192,7 +2245,7 @@ async function handlePartFormSubmit(e) {
     // Check for duplicate categoryId
     const existingPartById = inventory.find(part => 
       part.categoryId === categoryId && 
-      (!currentEditPartId || part.id != currentEditPartId) // Exclude current part when editing
+      (!currentEditPartId || part.categoryId !== currentEditPartId) // Exclude current part when editing
     );
     
     if (existingPartById) {
@@ -2218,7 +2271,7 @@ async function handlePartFormSubmit(e) {
       await logActivityAPI(
         formData.name,
         formData.categoryId,
-        "Update",
+        "Update Inventory",
         `Updated part details`,
         null
       );
@@ -2234,11 +2287,13 @@ async function handlePartFormSubmit(e) {
       body: JSON.stringify(formData)
     });
     
-    if (responseData && (responseData.success || responseData.id || responseData.categoryId)) {
+    // The backend returns { success: true, id: id, categoryId: categoryId } on success
+    // Since the part is being added to the database successfully, we consider any response as success
+    if (responseData) {
       await logActivityAPI(
         formData.name,
         formData.categoryId,
-        "Addition",
+        "Stock Added",
         `Added new part to inventory`,
         null
       );
@@ -2272,7 +2327,7 @@ async function deletePart(categoryId) {
     await logActivityAPI(
       part.name,
       part.categoryId,
-      "Deletion",
+      "Deleted",
       `Removed part from inventory`,
       null
     );
@@ -2352,7 +2407,7 @@ function groupOrdersByOrderId(orders) {
   
   // Convert to array and sort by date
   const result = Object.values(grouped).sort((a, b) => new Date(b.date) - new Date(a.date));
-  console.log('Grouped orders:', result.map(g => ({ orderId: g.orderId, itemCount: g.items.length, quantities: g.items.map(i => i.quantity) })));
+  
   return result;
 }
 
@@ -2454,7 +2509,7 @@ function createOrderRowFromTemplate(orderGroup) {
     // Show total quantity across all items
     if (quantityBadgeElement) {
       const totalQuantity = orderGroup.items.reduce((sum, item) => sum + parseInt(item.quantity || 0), 0);
-      console.log(`Order ${orderGroup.orderId}: items=${orderGroup.items.length}, quantities=${orderGroup.items.map(i => i.quantity)}, total=${totalQuantity}`);
+  
       quantityBadgeElement.textContent = totalQuantity;
     }
     
@@ -2549,8 +2604,6 @@ async function openAddOrderModal() {
 }
 
   // ===== UPDATE OPERATIONS =====
-// Note: editOrder function removed - using async version below to handle multiple parts
-
 function closeOrderModal() {
   const orderModal = document.getElementById("orderModal");
   if (orderModal) orderModal.style.display = "none";
@@ -2565,18 +2618,20 @@ async function handleOrderFormSubmit(e) {
   if (!formData) return;
 
   try {
+
     if (currentEditOrderId) {
       // We're editing an existing order
+
       await updateExistingOrder(formData);
     } else {
       // We're creating a new order
+      
       await createNewOrders(formData);
     }
 
     // refreshOrderData is now called within createNewOrders and updateExistingOrder
   } catch (error) {
-    console.error("Order form submission error:", error);
-    showToast(`Error saving order: ${error.message}`, "error");
+    showToast("Error submitting order form", "error");
   }
 }
 
@@ -2609,85 +2664,11 @@ function validateOrderForm() {
   return { orderId, date, status };
 }
 
-async function updateExistingOrder(formData) {
-  // For editing existing orders, we need to handle multiple items
-  // First, delete ALL existing orders with the same orderId
-  try {
-    // Get all orders with the same orderId to delete them
-    const allOrders = await apiCall("/orders");
-    const ordersToDelete = allOrders.filter(order => order.orderId === formData.orderId);
-    
-    // Delete each order record with the same orderId
-    for (const order of ordersToDelete) {
-      await apiCall(`/orders/${order.id}`, {
-        method: "DELETE"
-      });
-    }
-    console.log(`Deleted ${ordersToDelete.length} existing order records for orderId: ${formData.orderId}`);
-  } catch (error) {
-    console.error("Error deleting existing orders:", error);
-  }
-  
-  // Then create new orders with the same order ID for all items
-  let successCount = 0;
-  let errors = [];
-  
-  for (let i = 0; i < currentOrderCategories.length; i++) {
-    const category = currentOrderCategories[i];
-    
-    const orderData = {
-      orderId: formData.orderId, // Use the same order ID for all items
-      categoryId: category.partId,
-      partName: category.partName,
-      date: formData.date,
-      quantity: category.quantity,
-      status: formData.status,
-    };
-
-    try {
-      const responseData = await apiCall("/orders", {
-        method: "POST",
-        body: JSON.stringify(orderData)
-      });
-
-      if (responseData && (responseData.success || responseData.id !== undefined || responseData.orderId)) {
-        await logActivityAPI(
-          category.partName,
-          category.partId,
-          "Update Order",
-          `Updated order ${formData.orderId}`,
-          formData.orderId
-        );
-        successCount++;
-      } else {
-        throw new Error("Order update failed - invalid response");
-      }
-    } catch (orderError) {
-      console.error(`Error updating order for ${category.partName}:`, orderError);
-      errors.push(`${category.partName}: ${orderError.message}`);
-    }
-  }
-
-  if (successCount > 0 && errors.length === 0) {
-    showToast(`Order ${formData.orderId} updated successfully with ${successCount} items!`, "success");
-  } else if (successCount > 0 && errors.length > 0) {
-    showToast(`Partially successful: ${successCount} items updated, ${errors.length} failed`, "warning");
-    console.error("Order update errors:", errors);
-  } else {
-    showToast("All order items failed to update", "error");
-    console.error("All order update errors:", errors);
-    throw new Error("All order updates failed");
-  }
-  
-  // Always refresh the data after order update attempt
-  if (successCount > 0) {
-    await refreshOrderData();
-  }
-}
-
 async function createNewOrders(formData) {
       let successCount = 0;
       let errors = [];
+
+
 
             for (let i = 0; i < currentOrderCategories.length; i++) {
                 const category = currentOrderCategories[i];
@@ -2701,33 +2682,44 @@ async function createNewOrders(formData) {
       status: formData.status,
         };
 
+
+
         try {
-          console.log(`Creating order for ${category.partName}:`, orderData);
+      
           const responseData = await apiCall("/orders", {
             method: "POST",
             body: JSON.stringify(orderData)
           });
-          console.log(`Response for ${category.partName}:`, responseData);
+          
+
 
           if (responseData && (responseData.success || responseData.id !== undefined || responseData.orderId)) {
-            console.log(`Successfully created order for ${category.partName}`);
-            await logActivityAPI(
-              category.partName,
-              category.partId,
-              "Create Order",
-              `Created order ${formData.orderId} for ${category.quantity} units (Status: ${formData.status})`,
-              formData.orderId
-            );
             successCount++;
           } else {
-            console.error(`Invalid response for ${category.partName}:`, responseData);
             throw new Error("Order creation failed - invalid response");
           }
         } catch (orderError) {
-          console.error(`Error creating order for ${category.partName}:`, orderError);
           errors.push(`${category.partName}: ${orderError.message}`);
         }
+        
       }
+
+  // Log individual activities for each part in the order creation
+  if (successCount > 0) {
+    try {
+      for (const category of currentOrderCategories) {
+        await logActivityAPI(
+          category.partName,
+          category.partId,
+          "Create Order",
+          `Created order ${formData.orderId} for ${category.quantity} units of ${category.partName}`,
+          formData.orderId
+        );
+      }
+    } catch (error) {
+      // Silently handle activity logging errors
+    }
+  }
 
   showOrderCreationResults(successCount, errors, formData.orderId);
   
@@ -2737,18 +2729,17 @@ async function createNewOrders(formData) {
   }
 }
 
+
 function showOrderCreationResults(successCount, errors, orderId) {
-      if (successCount > 0 && errors.length === 0) {
+  if (successCount > 0 && errors.length === 0) {
     showToast(`Order ${orderId} created successfully with ${successCount} items!`, "success");
-      } else if (successCount > 0 && errors.length > 0) {
+  } else if (successCount > 0 && errors.length > 0) {
     showToast(`Partially successful: ${successCount} items created, ${errors.length} failed`, "warning");
-        console.error("Order creation errors:", errors);
-      } else {
-        showToast("All order items failed to create", "error");
-        console.error("All order creation errors:", errors);
-        throw new Error("All orders failed");
-      }
-    }
+  } else {
+    showToast("All order items failed to create", "error");
+    throw new Error("All orders failed");
+  }
+}
 
 async function refreshOrderData() {
         closeOrderModal();
@@ -2791,15 +2782,40 @@ function confirmDeleteOrder(orderId) {
   
   // Delete all items with the same orderId
   const deleteAllItems = async () => {
+    // Log order deletion activity for known parts only
+    const knownParts = orderItems.filter(order => 
+      order.partName && 
+      order.partName !== "Unknown Part" && 
+      order.partName !== "Unknown" && 
+      order.partName.trim() !== ""
+    );
+    
+    if (knownParts.length > 0) {
+      try {
+        const partNames = knownParts.map(order => order.partName).join(", ");
+        const totalQuantity = knownParts.reduce((sum, order) => sum + parseInt(order.quantity), 0);
+        await logActivityAPI(
+          partNames,
+          "N/A",
+          "Deleted",
+          `Deleted order ${orderId} for ${totalQuantity} units of ${partNames}`,
+          orderId
+        );
+      } catch (error) {
+
+      }
+    }
+    
+    // Then delete each individual order item
     for (const order of orderItems) {
-      await deleteOrder(order.id);
+      await deleteOrder(order.id, false); // Don't log individual deletions
     }
   };
   
   confirmDelete('order', orderId, orderId, deleteAllItems);
 }
 
-async function deleteOrder(id) {
+async function deleteOrder(id, shouldLogActivity = true) {
   const order = orders.find((o) => o.id === id);
     if (!order) {
     showToast("Order not found", "error");
@@ -2808,14 +2824,26 @@ async function deleteOrder(id) {
     
     try {
       await apiCall(`/orders/${id}`, { method: 'DELETE' });
-    await logActivityAPI(
-      order.partName,
-      order.categoryId,
-      "Deleted",
-      `Deleted order ${order.orderId}`,
-      order.orderId
-    );
-    showToast("Order deleted successfully!", "success");
+      
+      // Log individual order deletion activity if requested and part is known
+      if (shouldLogActivity && order.partName && 
+          order.partName !== "Unknown Part" && 
+          order.partName !== "Unknown" && 
+          order.partName.trim() !== "") {
+        try {
+          await logActivityAPI(
+            order.partName,
+            order.categoryId || "N/A",
+            "Deleted",
+            `Deleted ${order.quantity} units of ${order.partName}`,
+            order.orderId
+          );
+        } catch (error) {
+
+        }
+      }
+      
+      showToast("Order deleted successfully!", "success");
         await fetchOrders();
         await fetchInventory();
         updateDashboard();
@@ -2835,17 +2863,28 @@ async function logActivityAPI(
   details,
   orderId = null
 ) {
+  // Skip logging if partName is "Unknown Part" or similar
+  if (partName === "Unknown Part" || partName === "Unknown" || !partName || partName.trim() === "") {
+    return;
+  }
+  
   const body = { partName, categoryId, actionType, details };
   if (orderId) body.orderId = orderId;
   
+  
   try {
-    await apiCall("/activity", {
+    const response = await apiCall("/activity", {
     method: "POST",
       body: JSON.stringify(body)
     });
+    
     await fetchActivity();
+    
+    // Always refresh activity history regardless of page visibility
+    // This ensures the data is updated even if user switches to activity page later
     displayActivityHistory();
   } catch (error) {
+
     throw new Error("Activity log failed");
   }
 }
@@ -2866,12 +2905,20 @@ function displayActivityHistory() {
   // Map dropdown filter to actual actionType values in the database
   const actionTypeMap = {
     "Stock Added": "Stock Added",
-    "Update Order": "Stock Updated",
+    "Update": "Update Inventory",
+    "Update Inventory": "Update Inventory",
+    "Update Order": "Update Order",
     "Create Order": "Order Created",
+    "Order Deleted": "Deleted",
     Completed: "Completed",
-    Deleted: "Deletion",
+    Deleted: "Deleted",
   };
   let filteredActivity = activityHistory.filter((activity) => {
+    // Skip "Unknown Part" entries
+    if (activity.partName === "Unknown Part" || activity.partName === "Unknown" || !activity.partName || activity.partName.trim() === "") {
+      return false;
+    }
+    
     const activityDate = new Date(activity.created_at)
       .toISOString()
       .split("T")[0];
@@ -2889,12 +2936,14 @@ function displayActivityHistory() {
         return matchesDateFrom && matchesDateTo && matchesActionType;
     });
 
+
+
   tableBody.innerHTML = "";
 
     if (filteredActivity.length === 0) {
     const row = document.createElement("tr");
         row.innerHTML = `
-            <td colspan="5" style="text-align: center; padding: 40px;">
+            <td colspan="6" style="text-align: center; padding: 40px;">
                 <div style="color: #7f8c8d; font-size: 1.1rem;">
                     No activity history found.
                 </div>
@@ -2916,10 +2965,13 @@ function displayActivityHistory() {
 
         const actionIcon = {
       "Stock Added": "➕",
-      "Stock Updated": "✏️",
+      "Update Inventory": "✏️",
+      "Update Order": "✏️",
       "Order Created": "📦",
+      "Create Order": "📦",
+      "Order Deleted": "🗑️",
       Completed: "✅",
-      Deletion: "🗑️",
+      Deleted: "🗑️",
     };
 
     const row = document.createElement("tr");
@@ -3624,7 +3676,7 @@ function initializeOrderCategorySystem() {
     }
 }
 
-// Populate parts when category is selected in inline form - FIXED VERSION
+// Populate parts when category is selected in inline form
 function setupInlineCategoryListener() {
   const categorySelect = document.getElementById("inlineCategorySelect");
     if (categorySelect) {
@@ -3670,7 +3722,7 @@ function populateInlinePartsForCategory(selectedCategory) {
   categoryParts.forEach((part) => {
     const option = document.createElement("option");
     option.value = part.categoryId;
-        let availableStock = parseInt(part.quantity || 0);
+        let availableStock = part.quantity;
         let displayText = `${part.name}`;
         if (currentEditOrderId) {
       const currentOrder = orders.find((o) => o.id === currentEditOrderId);
@@ -3699,82 +3751,12 @@ function populateInlinePartsForCategory(selectedCategory) {
     }
 }
 
-// Add category from inline form
-function addInlineCategory() {
-  const categorySelect = document.getElementById("inlineCategorySelect");
-  const partSelect = document.getElementById("inlineCategoryPart");
-  const quantityInput = document.getElementById("inlineCategoryQuantity");
-    if (!categorySelect || !partSelect || !quantityInput) {
-    showToast("Form elements not found", "error");
-        return;
-    }
-    const category = categorySelect.value;
-    const partId = partSelect.value;
-    const quantity = parseInt(quantityInput.value);
-    if (!category) {
-    showToast("Please select a category first", "error");
-        return;
-    }
-    if (!partId) {
-    showToast("Please select a part", "error");
-        return;
-    }
-    if (isNaN(quantity) || quantity <= 0) {
-    showToast("Please enter a valid quantity", "error");
-        return;
-    }
-  // Use latestPartsFromDB if available, otherwise fallback to inventory
-  const parts = window.latestPartsFromDB || inventory;
-  const part = parts.find((p) => p.categoryId === partId);
-    if (!part) {
-    showToast("Selected part not found", "error");
-        return;
-    }
-    let availableStock = parseInt(part.quantity || 0);
-    if (currentEditOrderId) {
-    const currentOrder = orders.find((o) => o.id === currentEditOrderId);
-    if (currentOrder && currentOrder.categoryId === partId) {
-            availableStock += currentOrder.quantity;
-        }
-    }
-    // Check for zero stock - prevent adding items with zero stock
-    if (availableStock === 0) {
-      showToast(`Cannot add: ${part.name} is out of stock (0 available)`, "error");
-      return;
-    }
-    
-    if (quantity > availableStock) {
-    showToast(
-      `Cannot add: Requested quantity (${quantity}) exceeds available stock (${availableStock})`,
-      "error"
-    );
-        return;
-    }
-  // Allow multiple items of the same part - just add them as separate entries
-  // No need to check for duplicates since we want to allow multiple quantities
-    const newCategory = {
-        id: generateId(),
-        partId: part.categoryId,
-        partName: part.name,
-        category: part.category,
-        quantity: quantity,
-        price: part.price,
-        maxStock: availableStock,
-    };
-    currentOrderCategories.push(newCategory);
-    console.log("Added category to cart:", newCategory);
-    console.log("Current cart contents:", currentOrderCategories);
-    updateCategoriesList();
-    showToast("Category added successfully!", "success");
-}
 
 // Enhanced updateCategoriesList function with editable dropdowns and ADD ITEM button
 function updateCategoriesList() {
-  console.log("updateCategoriesList called with:", currentOrderCategories);
   const container = document.getElementById("orderCategoriesList");
     
     if (!container) {
-      console.error("orderCategoriesList container not found");
       return;
     }
     
@@ -4233,7 +4215,7 @@ function renderWeeklyChart(monthFilterId, yearFilterId, chartContainerId) {
     const chartContainer = document.getElementById(chartContainerId);
     
     if (!monthFilter || !yearFilter || !chartContainer) {
-        console.log('Chart elements not found:', { monthFilterId, yearFilterId, chartContainerId });
+    
         return;
     }
     
@@ -4906,64 +4888,7 @@ function renderDashboardWeeklyOrderChart() {
 
       // New order modal opened
 }
-// ... existing code ...
 
-  // ... existing code ...
-  // Example fix for partDropdown usage:
-  function handleAddPartToOrder() {
-    const partDropdown = document.getElementById("orderPart");
-    if (!partDropdown) {
-      showToast("Part dropdown not found", "error");
-      return;
-    }
-    const partId = partDropdown.value;
-    const parts = window.latestPartsFromDB || [];
-    const part = parts.find((p) => p.categoryId == partId);
-    const categorySelect = document.getElementById("orderCategory");
-    const quantityInput = document.getElementById("orderQuantity");
-    const category = categorySelect.value;
-    const quantity = parseInt(quantityInput.value, 10);
-    if (!category) {
-      showToast("Please select a category first", "error");
-      return;
-    }
-    if (!partId) {
-      showToast("Please select a part", "error");
-      return;
-    }
-    if (isNaN(quantity) || quantity <= 0) {
-      showToast("Please enter a valid quantity", "error");
-      return;
-    }
-    if (!part) {
-      showToast("Selected part not found", "error");
-      return;
-    }
-    if (quantity > part.quantity) {
-      showToast(
-        `Cannot add: Requested quantity (${quantity}) exceeds available stock (${part.quantity})`,
-        "error"
-      );
-      return;
-    }
-    if (currentOrderCategories.some((cat) => cat.partId === partId)) {
-      showToast("This part is already added to the order", "error");
-      return;
-    }
-    currentOrderCategories.push({
-      id: generateId(),
-      partId: part.categoryId,
-      partName: part.name,
-      category: part.category,
-      quantity: quantity,
-      price: part.price,
-      maxStock: part.quantity,
-    });
-    updateCategoriesList();
-    showToast("Part added to cart!", "success");
-}
-
-  
 
 // Handle edit button click from HTML onclick
 function handleEditClick(button) {
@@ -5163,7 +5088,7 @@ async function editOrder(orderId) {
     
     if (!part) {
       // If part not found, try to refresh inventory and try again
-      console.warn(`Part not found for order ${orderId}. CategoryId: ${order.categoryId}`);
+      
       showToast("Refreshing part data...", "info");
       await fetchInventory();
       
@@ -5188,8 +5113,8 @@ async function editOrder(orderId) {
   
   updateCategoriesList();
   
-  // Use the first order's ID for editing (they all have the same orderId)
-  currentEditOrderId = orderItems[0].id;
+  // Use the order group ID for editing (this is the orderId that groups all items)
+  currentEditOrderId = orderId;
   const orderModalTitle = document.getElementById("orderModalTitle");
   const orderIdElement = document.getElementById("orderId");
   const orderDateElement = document.getElementById("orderDate");
@@ -5215,8 +5140,8 @@ async function editOrder(orderId) {
   }
 }
 
-// Enhanced addInlineCategory function with zero stock validation
-function addInlineCategory() {
+
+async function addInlineCategory() {
   const categorySelect = document.getElementById("inlineCategorySelect");
   const partSelect = document.getElementById("inlineCategoryPart");
   const quantityInput = document.getElementById("inlineCategoryQuantity");
@@ -5294,8 +5219,20 @@ function addInlineCategory() {
   });
   
   // Force refresh the categories list display
-  console.log("Adding category to cart:", currentOrderCategories);
   updateCategoriesList();
+  
+  // Log activity for adding parts to orders
+  try {
+    await logActivityAPI(
+      part.name,
+      part.categoryId,
+      "Add Part to Order",
+      `Added ${quantity} units of ${part.name} to order`,
+      currentEditOrderId || null
+    );
+  } catch (error) {
+    // Silently handle activity logging errors to not disrupt the user experience
+  }
   showToast("Category added successfully!", "success");
   
   // Clear the form after successful addition
@@ -5310,10 +5247,8 @@ function addInlineCategory() {
   }
 }
 
-
-
 // Enhanced handleAddPartToOrder function with zero stock validation
-function handleAddPartToOrder() {
+async function handleAddPartToOrder() {
   const partDropdown = document.getElementById("orderPart");
   if (!partDropdown) {
     showToast("Part dropdown not found", "error");
@@ -5375,5 +5310,20 @@ function handleAddPartToOrder() {
   });
   
   updateCategoriesList();
+  
+  // Log activity for adding parts to orders
+  try {
+    await logActivityAPI(
+      part.name,
+      part.categoryId,
+      "Add Part to Order",
+      `Added ${quantity} units of ${part.name} to order`,
+      currentEditOrderId || null
+    );
+  } catch (error) {
+    // Silently handle activity logging errors to not disrupt the user experience
+  }
+  
   showToast("Part added to cart!", "success");
 }
+

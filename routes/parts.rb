@@ -35,7 +35,7 @@ post '/parts' do
   ActivityLog.create(activity_data)
   
   status 201
-  json({ id: id })
+  json({ success: true, id: id, categoryId: data['categoryId'] })
 end
 
 # Update a part

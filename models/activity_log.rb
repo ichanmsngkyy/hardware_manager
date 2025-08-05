@@ -14,16 +14,18 @@ class ActivityLog
     escaped_details = attrs['details'].gsub("'", "\\'")
     escaped_orderId = attrs['orderId'] ? attrs['orderId'].gsub("'", "\\'") : nil
     
+    # Generate timestamp-based activityId (format: YYYYMMDDHHMMSSSSS)
+    activity_id = Time.now.strftime('%Y%m%d%H%M%S%L')
+    
     if escaped_orderId
-      sql = "INSERT INTO activity_logs (partName, categoryId, actionType, details, user_id, orderId) VALUES ('#{escaped_partName}', '#{escaped_categoryId}', '#{escaped_actionType}', '#{escaped_details}', #{attrs['user_id'].to_i}, '#{escaped_orderId}')"
+      sql = "INSERT INTO activity_logs (activityId, partName, categoryId, actionType, details, user_id, orderId) VALUES ('#{activity_id}', '#{escaped_partName}', '#{escaped_categoryId}', '#{escaped_actionType}', '#{escaped_details}', #{attrs['user_id'].to_i}, '#{escaped_orderId}')"
     else
-      sql = "INSERT INTO activity_logs (partName, categoryId, actionType, details, user_id) VALUES ('#{escaped_partName}', '#{escaped_categoryId}', '#{escaped_actionType}', '#{escaped_details}', #{attrs['user_id'].to_i})"
+      sql = "INSERT INTO activity_logs (activityId, partName, categoryId, actionType, details, user_id) VALUES ('#{activity_id}', '#{escaped_partName}', '#{escaped_categoryId}', '#{escaped_actionType}', '#{escaped_details}', #{attrs['user_id'].to_i})"
     end
     execute_sql(sql)
     
-    # Get the last inserted ID
-    results = query_sql('SELECT LAST_INSERT_ID() as id')
-    results.first['id'].to_i
+    # Return the activityId we generated
+    activity_id
   end
 
   private
